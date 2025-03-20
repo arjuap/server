@@ -2,6 +2,7 @@
 export type SiteConfig = {
     name: string;
     urlPattern: string;
+    shortUrlPatterns?: string[];
     productPagePattern: string;
     alternatePatterns?: string[];
     productIdRegex: {

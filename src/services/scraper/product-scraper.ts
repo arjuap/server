@@ -3,8 +3,16 @@ import { siteConfigs } from '../sites-config/site-registry';
 
 export class ProductScraperService {
   public static identifySite(url: string): SiteConfig | null {
+    // First check for the main URL pattern
     const config = siteConfigs.find(config => url.includes(config.urlPattern));
-    return config || null;
+    if (config) return config;
+    
+    // If not found, check for shortened URL patterns
+    const configByShortUrl = siteConfigs.find(config => 
+      config.shortUrlPatterns?.some(pattern => url.includes(pattern))
+    );
+    
+    return configByShortUrl || null;
   }
 
   public static isProductPage(url: string, config: SiteConfig): boolean {

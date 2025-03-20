@@ -3,6 +3,7 @@ import { SiteConfig } from '../../types';
 export const amazonConfig: SiteConfig = {
   name: 'Amazon',
   urlPattern: 'amazon.com',
+  shortUrlPatterns: ['a.co', 'amzn.to', 'amzn.in'],
   productPagePattern: '/dp/',
   alternatePatterns: [
     '/gp/product/',
