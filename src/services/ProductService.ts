@@ -1,21 +1,29 @@
 import axios, { AxiosError } from 'axios';
-import { API_BASE_URL, AUTH_TOKEN } from '../config/auth-config';
+import { API_BASE_URL } from '../config/auth-config';
 import { ScrapedProduct, TransformedProduct } from '../types';
 
 export class ProductService {
   baseUrl: string;
-  authToken: string;
+  private _authToken: string;
 
   constructor() {
     this.baseUrl = API_BASE_URL;
-    this.authToken = AUTH_TOKEN();
+    this._authToken = '';
+  }
+
+  // Set auth token
+  setAuthToken(token: string) {
+    this._authToken = token;
   }
 
   // Helper to get headers with auth token
   async getAuthHeaders() {
+    if (!this._authToken) {
+      throw new Error('Auth token not set. Please authenticate first.');
+    }
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${AUTH_TOKEN()}`
+      'Authorization': `Bearer ${this._authToken}`
     };
   }
 

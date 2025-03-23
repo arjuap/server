@@ -7,9 +7,13 @@ import { productService } from './services/ProductService';
 import { WebhookResponse } from './types';
 import axios from 'axios';
 import puppeteer from 'puppeteer';
+import { getAuthTokenByPhone } from './config/user-details';
 
-// Initialize Twilio client
-const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
+// Function to get Twilio client with the appropriate auth token
+const getTwilioClient = (phoneNumber?: string) => {
+  const authToken = phoneNumber ? getAuthTokenByPhone(phoneNumber) : config.twilio.authToken;
+  return twilio(config.twilio.accountSid, authToken || config.twilio.authToken);
+};
 
 /**
  * Handle the Twilio webhook request
@@ -17,6 +21,25 @@ const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
 export const handleTwilioWebhook = async (req: Request, res: Response) => {
   try {
     console.log('Received webhook payload:', req.body);
+
+    // Get the sender's phone number and check for stored auth token
+    const from = req.body.From;
+    const storedAuthToken = from ? getAuthTokenByPhone(from) : undefined;
+    
+    if (!storedAuthToken) {
+      console.log('No stored auth token found for phone number:', from);
+      const noAuthMessage = 'Please register first to use this service.';
+      if (req.body.ConversationSid) {
+        await sendTwilioResponse(req.body.ConversationSid, noAuthMessage, from);
+      } else if (from) {
+        await sendTwilioWhatsAppResponse(from, req.body.To, noAuthMessage, from);
+      }
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+      return;
+    }
 
     // Check if we have a direct URL field in the request (from your webhook format)
     const urlField = req.body.url || '';
@@ -38,8 +61,8 @@ export const handleTwilioWebhook = async (req: Request, res: Response) => {
       
       console.log('Extracted clean URL from webhook payload:', extractedUrl);
       
-      // Process the extracted URL
-      const result = await processProductUrl(extractedUrl);
+      // Process the extracted URL with the stored auth token
+      const result = await processProductUrl(extractedUrl, storedAuthToken);
       res.json(result);
       return;
     }
@@ -47,7 +70,6 @@ export const handleTwilioWebhook = async (req: Request, res: Response) => {
     // If it's a regular Twilio webhook (fallback to existing code)
     const messageBody = req.body.Body || '';
     const conversationSid = req.body.ConversationSid;
-    const from = req.body.From;
     const to = req.body.To;
 
     console.log('Processing message body:', messageBody);
@@ -60,9 +82,9 @@ export const handleTwilioWebhook = async (req: Request, res: Response) => {
       console.log('No URL found in message, sending response:', noUrlMessage);
       
       if (conversationSid) {
-        await sendTwilioResponse(conversationSid, noUrlMessage);
+        await sendTwilioResponse(conversationSid, noUrlMessage, from);
       } else if (from) {
-        await sendTwilioWhatsAppResponse(from, to, noUrlMessage);
+        await sendTwilioWhatsAppResponse(from, to, noUrlMessage, from);
       }
       res.status(200).send();
       return;
@@ -70,16 +92,16 @@ export const handleTwilioWebhook = async (req: Request, res: Response) => {
     
     console.log('Processing extracted URL:', extractedUrl);
 
-    // Process only the extracted URL
-    const result = await processProductUrl(extractedUrl);
+    // Process only the extracted URL with the stored auth token
+    const result = await processProductUrl(extractedUrl, storedAuthToken);
     
     const responseMessage = result.message;
     console.log('Sending response:', responseMessage);
     
     if (conversationSid) {
-      await sendTwilioResponse(conversationSid, responseMessage);
+      await sendTwilioResponse(conversationSid, responseMessage, from);
     } else if (from) {
-      await sendTwilioWhatsAppResponse(from, to, responseMessage);
+      await sendTwilioWhatsAppResponse(from, to, responseMessage, from);
     }
     
     res.status(200).send();
@@ -118,7 +140,7 @@ export const handleDirectProductUrl = async (req: Request, res: Response) => {
 /**
  * Process a product URL by scraping and storing it
  */
-async function processProductUrl(url: string): Promise<WebhookResponse> {
+async function processProductUrl(url: string, authToken?: string): Promise<WebhookResponse> {
   try {
     console.log('Processing URL input:', url);
     
@@ -171,31 +193,32 @@ async function processProductUrl(url: string): Promise<WebhookResponse> {
       };
     }
 
-    // Use puppeteer to scrape the product data
+    // Use puppeteer to scrape the product data with the provided auth token
     console.log('Starting product scraping...');
     const scrapedProduct = await scrapeProductWithPuppeteer(processUrl);
     
-    if (!scrapedProduct || !scrapedProduct.title || !scrapedProduct.productId) {
-      return { 
-        success: false, 
-        message: 'Unable to extract product information from the page.' 
+    if (!scrapedProduct) {
+      return {
+        success: false,
+        message: "Sorry, we couldn't extract the product information from this page."
       };
     }
-    
-    // Store the product in the database
-    console.log('Storing product in database...');
+
+    // Store the product with the auth token if provided
+    if (authToken) {
+      productService.setAuthToken(authToken);
+    }
     await productService.storeProduct(scrapedProduct);
-    
-    return { 
-      success: true, 
-      message: `Your product "${scrapedProduct.title}" from ${scrapedProduct.site} has been saved! You can view it in your saved products list.`,
-      data: scrapedProduct
+
+    return {
+      success: true,
+      message: "Product saved successfully! We'll notify you of any price changes."
     };
   } catch (error) {
     console.error('Error processing product URL:', error);
-    return { 
-      success: false, 
-      message: 'Sorry, there was an error saving your product. Please try again later.' 
+    return {
+      success: false,
+      message: "Sorry, there was an error processing your request. Please try again later."
     };
   }
 }
@@ -203,13 +226,14 @@ async function processProductUrl(url: string): Promise<WebhookResponse> {
 /**
  * Send a message back to a Twilio conversation
  */
-async function sendTwilioResponse(conversationSid: string, message: string) {
+async function sendTwilioResponse(conversationSid: string, message: string, fromPhone?: string) {
   try {
     if (!conversationSid) {
       console.warn('No conversation SID provided, cannot send Twilio response');
       return;
     }
     
+    const twilioClient = getTwilioClient(fromPhone);
     await twilioClient.conversations.v1.conversations(conversationSid)
       .messages
       .create({ body: message });
@@ -223,13 +247,14 @@ async function sendTwilioResponse(conversationSid: string, message: string) {
 /**
  * Send a message back via Twilio WhatsApp
  */
-async function sendTwilioWhatsAppResponse(to: string, from: string, message: string) {
+async function sendTwilioWhatsAppResponse(to: string, from: string, message: string, fromPhone?: string) {
   try {
     if (!to || !from) {
       console.warn('Missing to/from information, cannot send WhatsApp response');
       return;
     }
     
+    const twilioClient = getTwilioClient(fromPhone);
     await twilioClient.messages.create({
       body: message,
       from: from,
