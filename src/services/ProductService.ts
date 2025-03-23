@@ -8,14 +8,14 @@ export class ProductService {
 
   constructor() {
     this.baseUrl = API_BASE_URL;
-    this.authToken = AUTH_TOKEN;
+    this.authToken = AUTH_TOKEN();
   }
 
   // Helper to get headers with auth token
   async getAuthHeaders() {
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.authToken}`
+      'Authorization': `Bearer ${AUTH_TOKEN()}`
     };
   }
 

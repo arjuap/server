@@ -14,5 +14,9 @@ export const config = {
   api: {
     baseUrl: process.env.API_BASE_URL || 'https://gl-api-mock.onrender.com',
     authToken: process.env.AUTH_TOKEN || ''
+  },
+  
+  admin: {
+    apiKey: process.env.ADMIN_API_KEY || ''
   }
 };

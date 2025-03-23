@@ -2,6 +2,8 @@ import express from 'express';
 import { handleTwilioWebhook, handleDirectProductUrl } from './webhook-controller';
 import twilio from 'twilio';
 import { config } from './config/environment';
+import { updateAuthToken } from './config/auth-config';
+import { Request, Response } from 'express';
 
 const router = express.Router();
 
@@ -34,5 +36,35 @@ router.post('/twilio/webhook', twilioWebhookMiddleware, handleTwilioWebhook);
 
 // Direct product URL processing endpoint (for testing or alternative use)
 router.post('/process-url', handleDirectProductUrl);
+
+// New endpoint to update auth token
+router.post('/update-auth-token', 
+  (req: Request, res: Response): void => {
+    try {
+      const { token } = req.body;
+      
+      if (!token) {
+        res.status(400).json({
+          success: false,
+          message: 'Auth token is required'
+        });
+        return;
+      }
+      
+      updateAuthToken(token);
+      
+      res.status(200).json({
+        success: true,
+        message: 'Auth token updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating auth token:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      });
+    }
+  }
+);
 
 export default router;
