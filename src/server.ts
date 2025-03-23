@@ -9,7 +9,7 @@ import { userDetails } from './config/user-details';
 
 // Create Express app
 const app = express();
-const PORT = config.port;
+const PORT = process.env.PORT || config.port || 3000;
 
 // Middleware
 app.use(cors());
@@ -31,9 +31,10 @@ app.get('/health', (req, res) => {
 // Start the server
 app.listen(PORT, () => {
   console.log(`
-    🚀 Server is running on port ${PORT} (using PORT env variable)
+    🚀 Server is running on port ${PORT}
     🌎 Environment: ${config.nodeEnv}
     ⏱️  Started at: ${new Date().toISOString()}
+    📝 Checking for PORT environment variable: ${process.env.PORT ? 'Found' : 'Not found'}
   `);
   
   // Log user details persistence information
