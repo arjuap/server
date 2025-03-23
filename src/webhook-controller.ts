@@ -11,8 +11,9 @@ import { getAuthTokenByPhone } from './config/user-details';
 
 // Function to get Twilio client with the appropriate auth token
 const getTwilioClient = (phoneNumber?: string) => {
-  const authToken = phoneNumber ? getAuthTokenByPhone(phoneNumber) : config.twilio.authToken;
-  return twilio(config.twilio.accountSid, authToken || config.twilio.authToken);
+  // For Twilio client, we should always use the Twilio auth token from config
+  // The phoneNumber param is used for API calls, not for Twilio auth
+  return twilio(config.twilio.accountSid, config.twilio.authToken);
 };
 
 /**
@@ -180,7 +181,13 @@ async function processProductUrl(url: string, authToken?: string): Promise<Webho
     // If it's a shortened URL, resolve it first
     let processUrl = url;
     if (isShortUrl) {
+      console.log('=================================================');
+      console.log('SHORTENED URL DETECTED');
+      console.log(`Original URL: ${url}`);
+      console.log('Resolving to full URL...');
       processUrl = await resolveShortUrl(url);
+      console.log(`Resolved URL: ${processUrl}`);
+      console.log('=================================================');
     }
     
     // Now check if it's a product page using the resolved URL
@@ -197,18 +204,35 @@ async function processProductUrl(url: string, authToken?: string): Promise<Webho
     console.log('Starting product scraping...');
     const scrapedProduct = await scrapeProductWithPuppeteer(processUrl);
     
-    if (!scrapedProduct) {
+    if (!scrapedProduct || !scrapedProduct.title) {
       return {
         success: false,
         message: "Sorry, we couldn't extract the product information from this page."
       };
     }
+    
+    // Check if we still have an unknown product ID
+    console.log('=================================================');
+    console.log('PRODUCT ID INFORMATION');
+    console.log(`Product ID: ${scrapedProduct.productId}`);
+    console.log(`Product title: ${scrapedProduct.title}`);
+    console.log(`Product URL: ${scrapedProduct.url}`);
+    if (scrapedProduct.productId === 'unknown') {
+      console.warn('⚠️ WARNING: Could not extract product ID from the page');
+      console.warn('This may cause database errors if duplicate "unknown" IDs exist');
+    } else if (scrapedProduct.productId.includes('-')) {
+      console.log('Product ID was generated from URL as fallback');
+    }
+    console.log('=================================================');
 
     // Store the product with the auth token if provided
     if (authToken) {
       productService.setAuthToken(authToken);
     }
+    
+    console.log('Storing product in database...');
     await productService.storeProduct(scrapedProduct);
+    console.log('Product successfully stored in database.');
 
     return {
       success: true,
@@ -233,7 +257,18 @@ async function sendTwilioResponse(conversationSid: string, message: string, from
       return;
     }
     
-    const twilioClient = getTwilioClient(fromPhone);
+    console.log('Sending conversation message:');
+    console.log(`- Conversation SID: ${conversationSid}`);
+    console.log(`- Message: ${message}`);
+    
+    // Always use the Twilio client with config credentials
+    const twilioClient = getTwilioClient();
+    
+    if (!config.twilio.accountSid || !config.twilio.authToken) {
+      console.error('Missing Twilio credentials in config');
+      return;
+    }
+    
     await twilioClient.conversations.v1.conversations(conversationSid)
       .messages
       .create({ body: message });
@@ -241,6 +276,11 @@ async function sendTwilioResponse(conversationSid: string, message: string, from
     console.log('Twilio response sent successfully');
   } catch (error) {
     console.error('Error sending Twilio response:', error);
+    console.error('Error details:', {
+      conversationSid,
+      accountSid: config.twilio.accountSid ? 'present' : 'missing',
+      authToken: config.twilio.authToken ? 'present' : 'missing'
+    });
   }
 }
 
@@ -254,7 +294,20 @@ async function sendTwilioWhatsAppResponse(to: string, from: string, message: str
       return;
     }
     
-    const twilioClient = getTwilioClient(fromPhone);
+    console.log('Sending WhatsApp message:');
+    console.log(`- From: ${from}`);
+    console.log(`- To: ${to}`);
+    console.log(`- Message: ${message}`);
+    
+    // Always use the Twilio client with config credentials
+    const twilioClient = getTwilioClient();
+    
+    if (!config.twilio.accountSid || !config.twilio.authToken) {
+      console.error('Missing Twilio credentials in config');
+      return;
+    }
+    
+    // Attempt to send the message
     await twilioClient.messages.create({
       body: message,
       from: from,
@@ -264,10 +317,16 @@ async function sendTwilioWhatsAppResponse(to: string, from: string, message: str
     console.log('Twilio WhatsApp response sent successfully');
   } catch (error) {
     console.error('Error sending Twilio WhatsApp response:', error);
+    console.error('Error details:', {
+      to,
+      from,
+      accountSid: config.twilio.accountSid ? 'present' : 'missing',
+      authToken: config.twilio.authToken ? 'present' : 'missing'
+    });
   }
 }
 
-// Updated resolveShortUrl function to be more defensive
+// Updated resolveShortUrl function to be more robust with shortened product URLs
 async function resolveShortUrl(url: string): Promise<string> {
   let browser;
   try {
@@ -289,13 +348,28 @@ async function resolveShortUrl(url: string): Promise<string> {
     });
     
     const page = await browser.newPage();
-    await page.setDefaultNavigationTimeout(30000);
     
+    // Increase timeout for navigation and set user agent
+    await page.setDefaultNavigationTimeout(60000);
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    );
+    
+    // Navigate to the URL and wait for network idle
     console.log('Navigating to URL:', url);
     await page.goto(url, { waitUntil: 'networkidle2' });
     
+    // Get the final URL after all redirects
     const resolvedUrl = page.url();
     console.log('Successfully resolved to:', resolvedUrl);
+    
+    // Check if the URL has changed
+    if (resolvedUrl !== url) {
+      console.log('URL was successfully redirected');
+    } else {
+      console.warn('URL did not redirect, may still be shortened');
+    }
+    
     return resolvedUrl;
   } catch (error) {
     console.error('Error during URL resolution:', error);

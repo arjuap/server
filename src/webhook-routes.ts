@@ -111,11 +111,31 @@ router.get('/debug/user-details',
         safeDetails[phoneNumber] = tokenPreview;
       }
       
+      // Check if the data file exists
+      const fs = require('fs');
+      const path = require('path');
+      const USER_DETAILS_FILE = path.join(__dirname, './data/user-details.json');
+      const fileExists = fs.existsSync(USER_DETAILS_FILE);
+      let fileSize = 0;
+      let lastModified = '';
+      
+      if (fileExists) {
+        const stats = fs.statSync(USER_DETAILS_FILE);
+        fileSize = stats.size;
+        lastModified = stats.mtime.toISOString();
+      }
+      
       res.status(200).json({
         success: true,
         message: 'Current user details (tokens masked for security)',
         data: safeDetails,
-        count: Object.keys(userDetails).length
+        count: Object.keys(userDetails).length,
+        persistence: {
+          fileExists,
+          fileSize: fileSize + ' bytes',
+          lastModified: lastModified || 'N/A',
+          filePath: USER_DETAILS_FILE
+        }
       });
     } catch (error) {
       console.error('Error retrieving user details:', error);

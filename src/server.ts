@@ -1,8 +1,11 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { config } from './config/environment';
 import webhookRoutes from './webhook-routes';
+import { userDetails } from './config/user-details';
 
 // Create Express app
 const app = express();
@@ -31,6 +34,18 @@ app.listen(PORT, () => {
     🚀 Server is running on port ${PORT}
     🌎 Environment: ${config.nodeEnv}
     ⏱️  Started at: ${new Date().toISOString()}
+  `);
+  
+  // Log user details persistence information
+  const USER_DETAILS_FILE = path.join(__dirname, './data/user-details.json');
+  const fileExists = fs.existsSync(USER_DETAILS_FILE);
+  
+  console.log(`
+    📋 User Authentication Details
+    📱 Users in memory: ${Object.keys(userDetails).length}
+    💾 Persistence file: ${fileExists ? 'Found' : 'Not found'}
+    🔒 Auth tokens will ${fileExists ? 'persist' : 'not persist'} between restarts
+    📁 Storage location: ${USER_DETAILS_FILE}
   `);
 });
 
