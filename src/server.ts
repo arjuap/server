@@ -31,7 +31,7 @@ app.get('/health', (req, res) => {
 // Start the server
 app.listen(PORT, () => {
   console.log(`
-    🚀 Server is running on port ${PORT}
+    🚀 Server is running on port ${PORT} (using PORT env variable)
     🌎 Environment: ${config.nodeEnv}
     ⏱️  Started at: ${new Date().toISOString()}
   `);
